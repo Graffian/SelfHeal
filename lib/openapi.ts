@@ -348,14 +348,67 @@ function compactSchema(
   return (current.type ?? "any") as string;
 }
 
-export function summarizeForLlm(parsed: ParsedSpec): string {
+const STOPWORDS = new Set([
+  "get", "list", "fetch", "show", "find", "search", "query", "create", "make",
+  "add", "new", "delete", "update", "remove", "all", "the", "a", "an", "of",
+  "for", "and", "to", "in", "on", "at", "with", "from", "by", "me", "my", "i",
+  "please", "want", "need", "give", "return", "named", "called", "first", "last",
+  "number", "total", "count", "up", "down", "one", "two", "three", "how", "what",
+  "which", "that", "this", "is", "are", "be", "do", "does", "using", "use",
+  "info", "information", "about", "into", "out",
+]);
+
+export function tokenize(text: string): string[] {
+  return text
+    .toLowerCase()
+    .split(/[^a-z0-9]+/)
+    .map((t) => t.trim())
+    .filter((t) => t.length >= 2 && !/^[0-9]+$/.test(t) && !STOPWORDS.has(t));
+}
+
+export function rankEndpointsByRelevance(endpoints: Endpoint[], goal: string): Endpoint[] {
+  const keywords = tokenize(goal);
+  if (keywords.length === 0) return [...endpoints];
+  const keySet = new Set(keywords);
+
+  const scored = endpoints.map((endpoint, index) => {
+    const pathSegments = endpoint.path.split("/").filter(Boolean);
+    const docText = [endpoint.summary, endpoint.bodySchema, ...endpoint.params.map((p) => p.name)].join(" ");
+    const docTokens = tokenize(docText);
+
+    let score = 0;
+    for (const keyword of keySet) {
+      let bestPathWeight = 0;
+      pathSegments.forEach((segment, i) => {
+        const segTokens = tokenize(segment);
+        if (segTokens.some((t) => t.startsWith(keyword) || keyword.startsWith(t))) {
+          bestPathWeight = Math.max(bestPathWeight, 1 / (i + 1));
+        }
+      });
+      if (bestPathWeight > 0) score += 10 * bestPathWeight;
+      if (docTokens.some((t) => t.startsWith(keyword) || keyword.startsWith(t))) score += 1;
+    }
+    return { endpoint, score, index };
+  });
+
+  scored.sort((a, b) => b.score - a.score || a.index - b.index);
+  return scored.map((s) => s.endpoint);
+}
+
+export function selectEndpointsForLlm(parsed: ParsedSpec, goal: string, limit = 15): Endpoint[] {
+  if (parsed.endpoints.length <= limit) return parsed.endpoints;
+  return rankEndpointsByRelevance(parsed.endpoints, goal).slice(0, limit);
+}
+
+export function summarizeForLlm(parsed: ParsedSpec, options?: { total?: number }): string {
   const lines: string[] = [];
   lines.push(`API: ${parsed.title}${parsed.version ? ` (v${parsed.version})` : ""}`);
   lines.push(
     `BASE URL: ${parsed.baseUrl || "not declared in the spec — URLs must be absolute and inferred from common knowledge"}`,
   );
   lines.push("");
-  lines.push(`ENDPOINTS (${parsed.endpoints.length}):`);
+  const total = options?.total && options.total > parsed.endpoints.length ? ` of ${options.total}` : "";
+  lines.push(`ENDPOINTS (${parsed.endpoints.length}${total} — most relevant to the goal):`);
   parsed.endpoints.forEach((e, i) => {
     lines.push(`${i + 1}. ${e.method} ${e.path}${e.summary ? ` — ${e.summary}` : ""}`);
     const pathParams = e.params.filter((p) => p.in === "path");

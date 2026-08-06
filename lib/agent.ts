@@ -1,6 +1,7 @@
 import {
   fetchAndParseSpec,
   summarizeForLlm,
+  selectEndpointsForLlm,
   assertHttpUrl,
   truncate,
   type ParsedSpec,
@@ -9,6 +10,7 @@ import { generateJsonResponse, hasGroqKey, currentModel, GroqError } from "@/lib
 import type { AgentEvent, Attempt, LlmRequest } from "@/lib/types";
 
 const MAX_ATTEMPTS = 3;
+const MAX_ENDPOINTS_FOR_LLM = 15;
 const REQUEST_TIMEOUT_MS = Number(process.env.REQUEST_TIMEOUT_MS ?? 20_000);
 
 const ALLOWED_METHODS = ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"];
@@ -67,7 +69,20 @@ export async function runAgent(
   }
 
   emit({ type: "spec_loaded", specTitle: parsed.title, endpointCount: parsed.endpoints.length, baseUrl: parsed.baseUrl });
-  const specSummary = summarizeForLlm(parsed);
+
+  const totalEndpoints = parsed.endpoints.length;
+  const relevantEndpoints = selectEndpointsForLlm(parsed, goal, MAX_ENDPOINTS_FOR_LLM);
+  if (relevantEndpoints.length < totalEndpoints) {
+    emit({
+      type: "log",
+      message: `spec filtered: ${totalEndpoints} endpoints → keeping top ${relevantEndpoints.length} most relevant to the goal (keyword match)`,
+      level: "info",
+    });
+  }
+  const specSummary = summarizeForLlm(
+    { ...parsed, endpoints: relevantEndpoints },
+    { total: totalEndpoints },
+  );
 
   for (let i = 1; i <= MAX_ATTEMPTS; i++) {
     const attempt = await runAttempt({

@@ -40,6 +40,9 @@ wrong.
   Fetch & parse OpenAPI spec ──── JSON or YAML, OpenAPI 3.x / Swagger 2.0
         │
         ▼
+  Pre-filter endpoints ──────── cheap keyword match (goal vs paths/summaries),
+        │                        top 15 kept, LLM never sees the full spec
+        ▼
   LLM plans a request   ──────── "pick the best endpoint, output ONLY JSON"
         │                                { method, url, headers, body }
         ▼
@@ -67,6 +70,12 @@ wrong.
 - **Spec is summarized, not dumped.** Every endpoint is reduced to a compact line
   (`GET /api/v2/pokemon/{id}` + path/query params + request body schema), keeping
   the prompt small even for 100+ endpoint APIs.
+- **Endpoint pre-filtering (no LLM).** Before planning, the agent scores every
+  endpoint with a cheap keyword-overlap match against the goal (tokenized paths,
+  summaries, params, body schemas; prefix/plural-aware). Only the top 15
+  relevant endpoints are sent to the LLM — so a 1,200+ endpoint spec like
+  GitHub's fits easily inside rate limits. Small specs (≤15 endpoints) skip
+  filtering entirely and are sent as-is.
 - **Self-correction is the point.** The corrective prompt includes the exact
   request that was tried, the exact error (status code + response body), and the
   endpoint list — so the model can diagnose and repair its own mistake.
@@ -93,7 +102,7 @@ wrong.
 - **Next.js 16 (App Router) + TypeScript**
 - **Tailwind CSS v4** — dark, terminal/monospace dev-tool aesthetic
 - **`groq-sdk`** — Groq's official TypeScript SDK, model
-  `llama-3.3-70b-versatile` (configurable)
+  `openai/gpt-oss-120b` (configurable via `GROQ_MODEL`)
 - **`yaml`** — so the spec fetcher accepts both JSON and YAML OpenAPI files
 - No database — everything is in-memory for a single request lifecycle
 
@@ -117,13 +126,14 @@ npm run dev
 | Variable | Default | Purpose |
 | --- | --- | --- |
 | `GROQ_API_KEY` | — | **Required.** Groq API key. |
-| `GROQ_MODEL` | `llama-3.3-70b-versatile` | Override the LLM. |
+| `GROQ_MODEL` | `openai/gpt-oss-120b` | Override the LLM. |
 | `GROQ_BASE_URL` | `https://api.groq.com/openai/v1` | Override the API base URL (testing/proxies). |
 | `REQUEST_TIMEOUT_MS` | `20000` | Timeout for the real API call. |
 
-> **Note on the default model:** Groq deprecated `llama-3.3-70b-versatile`
-> (shutdown 2026-08-16) and recommends `openai/gpt-oss-120b` or
-> `openai/gpt-oss-20b`. Set `GROQ_MODEL` to your preferred current model.
+> **Note on the default model:** `GROQ_MODEL` defaults to `openai/gpt-oss-120b`.
+> Groq occasionally deprecates older models — check
+> https://console.groq.com/docs/models and set `GROQ_MODEL` if you prefer another
+> model (e.g. `openai/gpt-oss-20b` for more TPM headroom on the free tier).
 
 ## Trying it out
 
