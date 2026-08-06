@@ -10,6 +10,13 @@ It never guesses blindly. It reads the actual spec, picks the best matching
 endpoint, executes the request for real, and *heals itself* when it gets it
 wrong.
 
+## Demo
+
+[![SelfHeal demo](https://img.youtube.com/vi/pwOvrO10c5g/0.jpg)](https://www.youtube.com/watch?v=pwOvrO10c5g)
+
+Watch it plan a request, execute it live, and self-correct in real time:
+https://www.youtube.com/watch?v=pwOvrO10c5g
+
 ---
 
 ## What it looks like
